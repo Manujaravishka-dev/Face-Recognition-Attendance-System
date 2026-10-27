@@ -11,6 +11,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent
 FACES = ROOT / 'faces'
+FACES_FULL = ROOT / 'faces_full'
 MODEL = ROOT / 'model.yml'
 DB = ROOT / 'attendance.db'
 FACES.mkdir(exist_ok=True)
@@ -232,6 +233,7 @@ def register(student_id, name):
     cascade = detector()
     cam = camera()
     folder = FACES / str(student_id)
+    full_folder = FACES_FULL / str(student_id)
     saved = 0
     frame_num = 0
     print('Look at camera and slowly change head angle. Press Q to stop.')
@@ -240,6 +242,7 @@ def register(student_id, name):
         if folder.exists() and any(folder.iterdir()):
             raise RuntimeError('Face samples already exist for this ID; contact admin.')
         folder.mkdir(exist_ok=True)
+        full_folder.mkdir(parents=True, exist_ok=True)
         while saved < 35:
             ok, frame = cam.read()
             if not ok:
@@ -252,6 +255,7 @@ def register(student_id, name):
                 if frame_num % 4 == 0:
                     face = cv2.resize(gray[y:y+h, x:x+w], (200, 200))
                     cv2.imwrite(str(folder / f'{saved:03d}.png'), face)
+                    cv2.imwrite(str(full_folder / f'{saved:03d}.jpg'), frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
                     saved += 1
             cv2.putText(frame, f'Saved {saved}/35 (Q to quit)', (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, .7, (0, 255, 255), 2)
@@ -262,6 +266,8 @@ def register(student_id, name):
         cam.release()
         cv2.destroyAllWindows()
     if saved < 10:
+        import shutil
+        shutil.rmtree(full_folder, ignore_errors=True)
         if folder.exists():
             for file in folder.glob('*.png'):
                 file.unlink()
@@ -269,8 +275,10 @@ def register(student_id, name):
         raise RuntimeError('Not enough samples captured; try again')
     try:
         check_captured_face(folder)
-        check_deep_face(folder)
+        check_deep_face(full_folder)
     except Exception:
+        import shutil
+        shutil.rmtree(full_folder, ignore_errors=True)
         for path in folder.glob('*.png'):
             path.unlink()
         if folder.exists():
@@ -280,7 +288,7 @@ def register(student_id, name):
     con.execute('INSERT INTO students(id, name) VALUES(?, ?)', (student_id, name))
     con.commit()
     con.close()
-    print(f'Registered {name}: {saved} face samples. Run train next.')
+    print(f'Registered {name}: {saved} samples (front / slight left / slight right recommended). Run train next.')
 
 
 def train():
