@@ -105,11 +105,14 @@ def duplicate_evidence(candidates, people, images, labels):
 
 
 def check_existing_face(cam, cascade):
-    """Fail closed: compare every candidate to enrolled samples before registration."""
+    """Detect repeated strong face matches early, continue if inconclusive."""
     people, images, labels = existing_face_samples()
     if not people:
         return
+    recognizer = cv2.face.LBPHFaceRecognizer_create()
+    recognizer.train(images, np.asarray(labels, dtype=np.int32))
     candidates = []
+    streak = {}
     frames = 0
     while len(candidates) < 24 and frames < 400:
         ok, frame = cam.read()
@@ -121,7 +124,26 @@ def check_existing_face(cam, cascade):
             x, y, w, h = boxes[0]
             cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 210, 255), 2)
             if frames % 3 == 0:
-                candidates.append(cv2.resize(gray[y:y+h, x:x+w], (200, 200)))
+                face = cv2.resize(gray[y:y+h, x:x+w], (200, 200))
+                candidates.append(face)
+                sid, distance = recognizer.predict(face)
+                if sid in people and distance < 55:
+                    streak[sid] = streak.get(sid, 0) + 1
+                    for other in list(streak):
+                        if other != sid:
+                            streak[other] = 0
+                    if streak[sid] >= 5:
+                        label = f'ALREADY REGISTERED? {people[sid]} ID {sid}'
+                        cv2.putText(frame, label[:60], (10, 72),
+                                    cv2.FONT_HERSHEY_SIMPLEX, .65, (0, 0, 255), 2)
+                        cv2.imshow('Register Student', frame)
+                        cv2.waitKey(1200)
+                        raise DuplicateFaceError(
+                            f'Possible same face as {people[sid]} (ID {sid}). '
+                            'Registration paused for manual identity verification.'
+                        )
+                else:
+                    streak.clear()
         cv2.putText(frame, f'Checking prior enrollment {len(candidates)}/24 - Q cancels',
                     (10, 30), cv2.FONT_HERSHEY_SIMPLEX, .55, (0, 210, 255), 2)
         cv2.imshow('Register Student', frame)
@@ -138,7 +160,6 @@ def check_existing_face(cam, cascade):
         )
     print('No strong duplicate indication found; proceed with enrollment. '
           'This is not proof of a unique identity.')
-
 
 def check_captured_face(folder):
     """Second gate after capture: no DB insert until face samples pass."""
