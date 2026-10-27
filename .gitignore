@@ -14,3 +14,4 @@ haarcascade_frontalface_default.xml
 
 models/
 *.download
+faces_full/
