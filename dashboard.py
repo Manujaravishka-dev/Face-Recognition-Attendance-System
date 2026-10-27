@@ -55,6 +55,7 @@ class Dashboard:
         self.auto_train = False
         self.training = False
         self.registration_id = None
+        self.reenrolling = False
         self.live_capture = None
         self.deep_verifier = None
         self.live_mode = 'LBPH'
@@ -153,6 +154,9 @@ class Dashboard:
         student_header.pack(fill="x", pady=(0, 12))
         tk.Label(student_header, text="Students", bg=PANEL, fg=FG,
                  font=("Segoe UI", 13, "bold")).pack(side="left")
+        tk.Button(student_header, text="Re-Enroll Face", command=self.reenroll_student,
+                  bg=ACCENT, fg=BG, font=("Segoe UI", 10, "bold"),
+                  relief="flat", cursor="hand2", padx=8, pady=6).pack(side="right", padx=(0, 8))
         tk.Button(student_header, text="Edit Profile", command=self.edit_student,
                   bg=CARD, fg=FG, font=("Segoe UI", 10, "bold"),
                   relief="flat", cursor="hand2", padx=10, pady=6).pack(side="right", padx=(0, 8))
@@ -171,10 +175,11 @@ class Dashboard:
         tk.Label(right, text="Attendance History", bg=PANEL, fg=FG,
                  font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(0, 12))
 
-        self.students = ttk.Treeview(left, columns=("id", "name", "status"),
+        self.students = ttk.Treeview(left, columns=("id", "name", "status", "face"),
                                      show="headings", selectmode="browse")
         for col, label, width in [("id", "ID", 60), ("name", "Student", 160),
-                                  ("status", "Today", 90)]:
+                                  ("status", "Today", 90),
+                                  ("face", "Recognition", 160)]:
             self.students.heading(col, text=label)
             self.students.column(col, width=width, minwidth=55, stretch=True)
         self.students.pack(fill="both", expand=True)
@@ -215,12 +220,37 @@ class Dashboard:
             self.metric_labels[key].configure(text=str(value))
         for tree in (self.students, self.history):
             tree.delete(*tree.get_children())
-        self.cached_students = [(sid, name, "Present" if sid in marked else "Pending")
-                                for sid, name in students]
+        self.cached_students = [
+            (sid, name, "Present" if sid in marked else "Pending", self.recognition_status(sid))
+            for sid, name in students]
         self.filter_students()
         for row in records:
             self.history.insert("", "end", values=row)
         self.status.set("Data refreshed. Attendance is counted once per student per day.")
+
+    def recognition_status(self, sid):
+        from deep_face import installed, DeepFaceVerifier
+        folder = ROOT / "faces_full" / str(sid)
+        if not folder.exists() or len(list(folder.glob("*.jpg"))) < 10:
+            return "Needs Re-Enrollment"
+        if not installed():
+            return "Models Not Installed"
+        try:
+            verifier = DeepFaceVerifier()
+            from PIL import Image
+            count = 0
+            for photo in sorted(folder.glob("*.jpg"))[:12]:
+                with Image.open(photo) as img:
+                    import numpy as np
+                    rgb = np.array(img.convert("RGB"))
+                import cv2
+                if verifier.embed(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)) is not None:
+                    count += 1
+                if count >= 5:
+                    return "Ready"
+            return "Needs Re-Enrollment"
+        except (RuntimeError, OSError, cv2.error):
+            return "Model Check Failed"
 
     def filter_students(self):
         term = self.search_var.get().strip().casefold()
@@ -414,6 +444,28 @@ class Dashboard:
             return
         self.launch(["register", "--id", sid, "--name", name], f"Capturing face for {name}", auto_train=True)
 
+    def reenroll_student(self):
+        if self.live_capture is not None or self.training or (self.process and self.process.poll() is None):
+            messagebox.showwarning("Camera Busy", "Stop the camera and finish other actions first.")
+            return
+        selected = self.students.selection()
+        if not selected:
+            messagebox.showinfo("Select Student", "Select a student before re-enrolling.")
+            return
+        sid, name, *_ = self.students.item(selected[0], "values")
+        if not messagebox.askyesno("Re-Enroll Face",
+              f"Recapture face for {name} (ID {sid})?\\n"
+              "The ID, name and attendance history will be kept.\\n"
+              "Confirm student consent before continuing."):
+            return
+        try:
+            self.process = subprocess.Popen(
+                [sys.executable, str(ROOT / "re_enroll.py"), "--id", str(sid)], cwd=ROOT)
+            self.reenrolling = True
+            self.status.set(f"Re-enrolling {name}: Front, Left, Right. Press Q to cancel.")
+        except OSError as error:
+            messagebox.showerror("Capture failed", str(error))
+
     def edit_student(self):
         if self.training or self.live_capture is not None or (self.process and self.process.poll() is None):
             messagebox.showwarning("Busy", "Stop the camera before opening a profile.")
@@ -524,12 +576,21 @@ class Dashboard:
     def poll(self):
         if self.process and self.process.poll() is not None:
             exit_code = self.process.returncode
+            was_reenrollment = self.reenrolling
+            self.reenrolling = False
             was_registration = self.auto_train
             student_id = self.registration_id
             self.process = None
             self.auto_train = False
             self.registration_id = None
             self.refresh()
+            if was_reenrollment:
+                if exit_code == 0:
+                    self.status.set("Face re-enrollment completed; existing attendance preserved.")
+                    messagebox.showinfo("Re-Enrolled", "Face data updated. Student ID and attendance preserved.")
+                else:
+                    self.status.set("Re-enrollment cancelled or failed; verify prior face data.")
+                    messagebox.showwarning("Not Completed", "Re-enrollment did not finish. Review terminal output.")
             if was_registration:
                 with sqlite3.connect(DB) as connection:
                     registered = connection.execute(
