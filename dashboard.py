@@ -117,8 +117,14 @@ class Dashboard:
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
-        tk.Label(left, text="Students", bg=PANEL, fg=FG,
-                 font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(0, 12))
+        student_header = tk.Frame(left, bg=PANEL)
+        student_header.pack(fill="x", pady=(0, 12))
+        tk.Label(student_header, text="Students", bg=PANEL, fg=FG,
+                 font=("Segoe UI", 13, "bold")).pack(side="left")
+        tk.Button(student_header, text="Delete Student", command=self.delete_student,
+                  bg="#a93646", fg="#ffffff", activebackground="#c34a59",
+                  activeforeground="#ffffff", font=("Segoe UI", 10, "bold"),
+                  relief="flat", cursor="hand2", padx=10, pady=6).pack(side="right")
         tk.Label(right, text="Attendance History", bg=PANEL, fg=FG,
                  font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(0, 12))
 
@@ -129,8 +135,6 @@ class Dashboard:
             self.students.heading(col, text=label)
             self.students.column(col, width=width, minwidth=55, stretch=True)
         self.students.pack(fill="both", expand=True)
-        self.button(left, "Delete Selected Student", self.delete_student, dark=True).pack(
-            anchor="w", pady=(10, 0))
 
         self.history = ttk.Treeview(right, columns=("date", "time", "id", "name"),
                                     show="headings")
