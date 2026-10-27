@@ -118,3 +118,13 @@ The setup script downloads the models once into the ignored local `models/` dire
 **Important limitations:** Existing images are small grayscale LBPH crops, not full-color five-landmark images; SFace may be unable to extract embeddings for them. That deliberately blocks enrollment when the deep gallery is incomplete. For reliable future results, we should add consented full-frame multi-angle enrollment photos and calibrate face-matching thresholds against test data. This phase does **not** replace attendance recognition with SFace and does not guarantee that differently named registrations will always be detected. Always confirm a school ID or other authoritative identifier.
 
 Face matching accuracy and ONNX model compatibility must be tested on the target Windows/OpenCV installation; this change has not been camera-tested remotely.
+
+## Phase 4: Multi-angle enrollment + SFace live preview (experimental)
+
+New webcam registration retains existing 200x200 LBPH crops **and** saves locally held full-color camera frames in ignored `faces_full/<student_id>/`. During enrollment look front, then slightly left and right, ensuring just one face stays in view. Existing students' original images cannot be reconstructed; they must be voluntarily re-enrolled to obtain full-frame samples.
+
+When both optional OpenCV Zoo models are installed AND the SFace face gallery can be built for **all** registered students, the embedded Dashboard camera shows `LIVE (SFace)`. Otherwise it falls back to `LIVE (LBPH)`. Deep recognition currently accepts one visible face per frame and requires 8 successive matches before marking attendance. The existing CLI attendance still uses LBPH. The original 35 samples are saved locally, not uploaded.
+
+**Experimental:** The heuristic SFace similarity and ambiguity thresholds have not been calibrated for your camera or for different people. It can still give false positives/negatives; do not use automatic matches as an unquestionable source of attendance truth. Keep manual corrections available. Full-color student photos are highly sensitive biometric data: obtain consent, restrict access to the PC and backups, and never push `faces_full` or `attendance.db` to public GitHub.
+
+Setup: `git pull origin main`, `py -m pip install -r requirements.txt`, optionally `py setup_deep_models.py`, then `py dashboard.py`. For first use, make a private backup and validate using consented test students. Existing enrolled faces require re-enrollment before expecting reliable SFace recognition.
