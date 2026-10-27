@@ -5,7 +5,7 @@ import sqlite3
 import tempfile
 from pathlib import Path
 import cv2
-from main import DB, FACES, FACES_FULL, MODEL, camera, detector, crop_faces, train
+from main import ROOT, DB, FACES, FACES_FULL, MODEL, camera, detector, crop_faces, train
 
 STAGES = [("FRONT", 0), ("LEFT", 1), ("RIGHT", 2)]
 PER_STAGE = 12
@@ -100,5 +100,5 @@ if __name__ == "__main__":
     try:
         re_enroll(args.id)
     except (RuntimeError, OSError, cv2.error) as error:
-        print(f"ERROR: {error}")
+        print(f"ERROR: {error}", flush=True)
         raise SystemExit(1)
