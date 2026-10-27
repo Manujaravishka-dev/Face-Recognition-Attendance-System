@@ -128,3 +128,17 @@ When both optional OpenCV Zoo models are installed AND the SFace face gallery ca
 **Experimental:** The heuristic SFace similarity and ambiguity thresholds have not been calibrated for your camera or for different people. It can still give false positives/negatives; do not use automatic matches as an unquestionable source of attendance truth. Keep manual corrections available. Full-color student photos are highly sensitive biometric data: obtain consent, restrict access to the PC and backups, and never push `faces_full` or `attendance.db` to public GitHub.
 
 Setup: `git pull origin main`, `py -m pip install -r requirements.txt`, optionally `py setup_deep_models.py`, then `py dashboard.py`. For first use, make a private backup and validate using consented test students. Existing enrolled faces require re-enrollment before expecting reliable SFace recognition.
+
+## Phase 5: Guided face re-enrollment
+
+Choose a student in the **Students** table and click **Re-Enroll Face**. With the person's informed consent, a separate capture window guides **FRONT**, **LEFT**, and **RIGHT**, collecting 12 usable frames for each prompt (36 total). Keep one face visible. Press Q to cancel. The existing student ID, name, class details and attendance table are never edited by re-enrollment. Photos are staged locally, then replaced and the LBPH model retrained; failed capture does not replace existing images. If retraining fails, the code attempts to restore old samples and model.
+
+The **Recognition** column displays:
+- **Needs Re-Enrollment** if usable full-color face images are missing or insufficient
+- **Models Not Installed** if local full-color images exist but optional ONNX models are missing
+- **Ready** if both models are installed and at least five stored images produce SFace embeddings
+- **Model Check Failed** if the readiness check throws an error
+
+**Ready only indicates local data/model availability, NOT identity accuracy or certified biometric security.** The prompts guide head positioning but do not measure head pose or guarantee three different angles. Keep an encrypted/private backup of biometric data before testing; do not commit `faces/`, `faces_full/`, `model.yml`, `attendance.db`, or ZIP backups to the public repository.
+
+Run `git pull origin main`, `py -m pip install -r requirements.txt`, optionally `py setup_deep_models.py`, then `py dashboard.py`.
