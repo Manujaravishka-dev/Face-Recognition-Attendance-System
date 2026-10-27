@@ -51,3 +51,7 @@ Dashboard features:
 On some Linux installations Tkinter needs the separate `python3-tk` OS package. Tkinter is included in most official Windows Python installations.
 
 The face-recognition implementation is a local education demo, not a high-assurance identity system. Obtain informed consent; do not publish any faces, databases or trained model files. Verify attendance manually where needed.
+
+### One-click registration and automatic training
+
+In the desktop dashboard, enter a **new numeric student ID** and **student name**, then click **Capture & Auto Train**. Confirm the student's consent. The webcam captures 35 samples (at least 10 are required); after the camera closes successfully, the dashboard **automatically retrains the recognition model using all registered students**. Manual Train Model remains available. Do not close the dashboard while training. Previously registered students and attendance records remain local and are not deleted.
