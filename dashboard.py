@@ -224,7 +224,7 @@ class Dashboard:
                 return
             if " ".join(existing_name.split()).casefold() == " ".join(name.split()).casefold():
                 messagebox.showwarning("Duplicate student",
-                    f"{existing_name} is already registered with ID {existing_id}.\\n"
+                    f"{existing_name} is already registered with ID {existing_id}.\n"
                     "Use the existing record instead of registering twice.")
                 return
         if not messagebox.askyesno("Consent", "Confirm this student has consented to local face-image capture."):
@@ -242,7 +242,7 @@ class Dashboard:
         sid, name, _ = self.students.item(selected[0], "values")
         if not messagebox.askyesno(
             "Delete student",
-            f"Permanently remove {name} (ID {sid})?\\n\\n"
+            f"Permanently remove {name} (ID {sid})?\n\n"
             "Their face samples and attendance records will also be deleted. "
             "This cannot be undone.",
         ):
