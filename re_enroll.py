@@ -18,7 +18,7 @@ def re_enroll(student_id):
         raise RuntimeError("Student ID not found.")
     cascade = detector()
     cam = camera()
-    with tempfile.TemporaryDirectory(prefix="face_reenroll_") as workspace:
+    with tempfile.TemporaryDirectory(prefix="face_reenroll_", dir=ROOT) as workspace:
         root = Path(workspace)
         crop_dir, full_dir = root / "crop", root / "full"
         crop_dir.mkdir()
@@ -33,6 +33,7 @@ def re_enroll(student_id):
                 if not ok:
                     raise RuntimeError("Camera disconnected; existing face data unchanged.")
                 title, _ = STAGES[current]
+                original_frame = frame.copy()
                 gray, boxes = crop_faces(frame, cascade)
                 if len(boxes) == 1:
                     x, y, w, h = boxes[0]
@@ -42,7 +43,7 @@ def re_enroll(student_id):
                         number = current * PER_STAGE + count
                         cv2.imwrite(str(crop_dir / f"{number:03d}.png"),
                                     cv2.resize(gray[y:y+h, x:x+w], (200, 200)))
-                        cv2.imwrite(str(full_dir / f"{number:03d}.jpg"), frame,
+                        cv2.imwrite(str(full_dir / f"{number:03d}.jpg"), original_frame,
                                     [cv2.IMWRITE_JPEG_QUALITY, 90])
                         count += 1
                         if count == PER_STAGE:
