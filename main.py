@@ -161,6 +161,44 @@ def check_existing_face(cam, cascade):
     print('No strong duplicate indication found; proceed with enrollment. '
           'This is not proof of a unique identity.')
 
+def check_deep_face(folder):
+    """Optional SFace screening; no identity conclusion from a single score."""
+    from deep_face import DeepFaceVerifier, installed
+    if not installed():
+        return
+    with connect() as con:
+        people = dict(con.execute('SELECT id, name FROM students'))
+    if not people:
+        return
+    try:
+        verifier = DeepFaceVerifier()
+        gallery = verifier.build_gallery(FACES, people)
+        if set(gallery) != set(people):
+            raise RuntimeError(
+                'Deep face gallery incomplete. Registration paused for manual review.'
+            )
+        candidate_frames = []
+        for path in sorted(folder.glob('*.png')):
+            frame = cv2.imread(str(path))
+            if frame is not None:
+                candidate_frames.append(frame)
+        candidate_vectors = sum(verifier.embed(frame) is not None for frame in candidate_frames)
+        if candidate_vectors < 5:
+            raise RuntimeError(
+                'Deep face verification could not read enough candidate images. '
+                'Registration paused for manual review.'
+            )
+        matched = verifier.potential_match(candidate_frames, people)
+        if matched:
+            sid, name, score = matched
+            raise DuplicateFaceError(
+                f'Deep face possible duplicate: {name} (ID {sid}), '
+                f'similarity {score:.2f}. Registration requires manual review.'
+            )
+    except cv2.error as error:
+        raise RuntimeError(f'Deep model verification error: {error}') from error
+
+
 def check_captured_face(folder):
     """Second gate after capture: no DB insert until face samples pass."""
     people, images, labels = existing_face_samples()
@@ -231,6 +269,7 @@ def register(student_id, name):
         raise RuntimeError('Not enough samples captured; try again')
     try:
         check_captured_face(folder)
+        check_deep_face(folder)
     except Exception:
         for path in folder.glob('*.png'):
             path.unlink()
