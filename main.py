@@ -1,6 +1,7 @@
 import argparse
 import csv
 import sqlite3
+import sys
 from urllib.request import urlretrieve
 from datetime import datetime
 from pathlib import Path
@@ -59,6 +60,65 @@ def crop_faces(frame, cascade):
     return gray, boxes
 
 
+
+class DuplicateFaceError(RuntimeError):
+    """Potential match with an existing student; prevent automatic registration."""
+
+
+def check_existing_face(cam, cascade):
+    """Pre-screen webcam faces before saving any new student's images.
+
+    LBPH scores are not probabilities. Require repeated strong matches and
+    instruct staff to resolve uncertain results manually.
+    """
+    if not MODEL.exists():
+        return
+    with connect() as con:
+        names = dict(con.execute('SELECT id, name FROM students').fetchall())
+    if not names:
+        return
+    recognizer = cv2.face.LBPHFaceRecognizer_create()
+    recognizer.read(str(MODEL))
+    votes = {}
+    checked = 0
+    frames = 0
+    while checked < 24 and frames < 350:
+        ok, frame = cam.read()
+        if not ok:
+            raise RuntimeError('Camera disconnected during duplicate face check.')
+        frames += 1
+        gray, boxes = crop_faces(frame, cascade)
+        label = 'Checking existing registered faces...'
+        if len(boxes) == 1:
+            x, y, w, h = boxes[0]
+            if frames % 3 == 0:
+                face = cv2.resize(gray[y:y+h, x:x+w], (200, 200))
+                sid, distance = recognizer.predict(face)
+                checked += 1
+                if sid in names and distance < 48:
+                    votes[sid] = votes.get(sid, 0) + 1
+                    if votes[sid] >= 7:
+                        label = f'ALREADY REGISTERED: {names[sid]} (ID {sid})'
+                        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 255), 3)
+                        cv2.putText(frame, label[:65], (10, 65),
+                                    cv2.FONT_HERSHEY_SIMPLEX, .6, (0, 0, 255), 2)
+                        cv2.imshow('Register Student', frame)
+                        cv2.waitKey(1400)
+                        raise DuplicateFaceError(
+                            f'Already registered (possible face match): '
+                            f'{names[sid]} (ID {sid}). Verify manually.'
+                        )
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 200, 255), 2)
+        cv2.putText(frame, label, (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, .55, (0, 255, 255), 2)
+        cv2.putText(frame, f'Face check {checked}/24 (Q to cancel)', (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, .55, (0, 255, 255), 2)
+        cv2.imshow('Register Student', frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            raise RuntimeError('Registration cancelled during face check.')
+    if checked < 24:
+        raise RuntimeError('Could not verify face. Improve lighting, face camera and retry.')
+
 def register(student_id, name):
     con = connect()
     if con.execute('SELECT 1 FROM students WHERE id=?', (student_id,)).fetchone():
@@ -70,14 +130,17 @@ def register(student_id, name):
             con.close()
             raise ValueError(f'Student already registered as ID {existing_id}: {existing_name}')
     con.close()
-    folder = FACES / str(student_id)
-    folder.mkdir(exist_ok=True)
     cascade = detector()
     cam = camera()
+    folder = FACES / str(student_id)
     saved = 0
     frame_num = 0
     print('Look at camera and slowly change head angle. Press Q to stop.')
     try:
+        check_existing_face(cam, cascade)
+        if folder.exists() and any(folder.iterdir()):
+            raise RuntimeError('Face samples already exist for this ID; contact admin.')
+        folder.mkdir(exist_ok=True)
         while saved < 35:
             ok, frame = cam.read()
             if not ok:
@@ -100,9 +163,10 @@ def register(student_id, name):
         cam.release()
         cv2.destroyAllWindows()
     if saved < 10:
-        for file in folder.glob('*.png'):
-            file.unlink()
-        folder.rmdir()
+        if folder.exists():
+            for file in folder.glob('*.png'):
+                file.unlink()
+            folder.rmdir()
         raise RuntimeError('Not enough samples captured; try again')
     con = connect()
     con.execute('INSERT INTO students(id, name) VALUES(?, ?)', (student_id, name))
@@ -213,5 +277,9 @@ if __name__ == '__main__':
             attendance()
         else:
             report()
+    except DuplicateFaceError as e:
+        print(f'ALREADY REGISTERED: {e}', flush=True)
+        sys.exit(3)
     except (RuntimeError, ValueError, cv2.error) as e:
-        print(f'Error: {e}')
+        print(f'Error: {e}', flush=True)
+        sys.exit(1)
