@@ -45,6 +45,9 @@ class Dashboard:
         root.minsize(850, 580)
         root.configure(bg=BG)
         self.process = None
+        self.auto_train = False
+        self.training = False
+        self.registration_id = None
 
         style = ttk.Style()
         style.theme_use("clam")
@@ -100,7 +103,7 @@ class Dashboard:
         self.name_entry = tk.Entry(entryrow, width=24, font=("Segoe UI", 11))
         self.name_entry.pack(side="left", padx=(0, 10), ipady=6)
         self.name_entry.insert(0, "Student Name")
-        self.button(entryrow, "Capture Face", self.register_student).pack(side="left")
+        self.button(entryrow, "Capture & Auto Train", self.register_student).pack(side="left")
 
         tables = tk.Frame(outer, bg=BG)
         tables.pack(fill="both", expand=True)
@@ -172,12 +175,17 @@ class Dashboard:
         with sqlite3.connect(DB) as connection:
             return connection.execute("SELECT COUNT(*) FROM attendance").fetchone()[0]
 
-    def launch(self, args, label):
+    def launch(self, args, label, auto_train=False):
+        if self.training:
+            messagebox.showinfo("Training in progress", "Finish model training before using the camera.")
+            return
         if self.process is not None and self.process.poll() is None:
             messagebox.showinfo("Camera in use", "Close the current camera window with Q first.")
             return
         try:
             self.process = subprocess.Popen([sys.executable, str(MAIN), *args], cwd=ROOT)
+            self.auto_train = auto_train
+            self.registration_id = int(args[args.index("--id") + 1]) if auto_train else None
             self.status.set(label + " — press Q in the camera window to finish")
         except OSError as exc:
             messagebox.showerror("Unable to start", str(exc))
@@ -208,18 +216,23 @@ class Dashboard:
             return
         if not messagebox.askyesno("Consent", "Confirm this student has consented to local face-image capture."):
             return
-        self.launch(["register", "--id", sid, "--name", name], f"Capturing face for {name}")
+        self.launch(["register", "--id", sid, "--name", name], f"Capturing face for {name}", auto_train=True)
 
     def train_model(self):
+        if self.training:
+            return
         if self.process and self.process.poll() is None:
             messagebox.showwarning("Camera active", "Finish the camera session first.")
             return
+        self.training = True
         self.status.set("Training model...")
         def worker():
             result = subprocess.run([sys.executable, str(MAIN), "train"], cwd=ROOT,
                                     text=True, capture_output=True)
             def done():
+                self.training = False
                 self.status.set("Model trained" if result.returncode == 0 else "Training failed")
+                self.refresh()
                 messagebox.showinfo("Training result", (result.stdout + "\n" + result.stderr).strip())
             self.root.after(0, done)
         threading.Thread(target=worker, daemon=True).start()
@@ -242,8 +255,27 @@ class Dashboard:
 
     def poll(self):
         if self.process and self.process.poll() is not None:
+            exit_code = self.process.returncode
+            was_registration = self.auto_train
+            student_id = self.registration_id
             self.process = None
+            self.auto_train = False
+            self.registration_id = None
             self.refresh()
+            if was_registration:
+                with sqlite3.connect(DB) as connection:
+                    registered = connection.execute(
+                        "SELECT 1 FROM students WHERE id=?", (student_id,)
+                    ).fetchone() is not None
+                if exit_code == 0 and registered:
+                    self.status.set("Face captured successfully. Auto training model...")
+                    self.train_model()
+                else:
+                    self.status.set("Registration incomplete. Model was not trained.")
+                    messagebox.showwarning(
+                        "Registration incomplete",
+                        "Face capture did not complete. Capture at least 10 samples and retry."
+                    )
         else:
             self.refresh_silent()
         self.root.after(3500, self.poll)
@@ -260,6 +292,9 @@ class Dashboard:
             pass
 
     def close(self):
+        if self.training:
+            messagebox.showinfo("Please finish training", "Close after model training is complete.")
+            return
         if self.process and self.process.poll() is None:
             if not messagebox.askyesno("Camera still running", "Stop camera and exit dashboard?"):
                 return
