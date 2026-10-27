@@ -3,6 +3,10 @@
 Uses Python's built-in Tkinter; webcam sessions run in separate processes.
 """
 import csv
+import cv2
+import numpy as np
+from PIL import Image, ImageTk
+from datetime import datetime
 import tempfile
 import zipfile
 import shutil
@@ -44,13 +48,19 @@ class Dashboard:
     def __init__(self, root):
         self.root = root
         root.title("Face Recognition | Attendance Dashboard")
-        root.geometry("1120x740")
+        root.geometry("1200x900")
         root.minsize(850, 580)
         root.configure(bg=BG)
         self.process = None
         self.auto_train = False
         self.training = False
         self.registration_id = None
+        self.live_capture = None
+        self.live_model = None
+        self.live_detector = None
+        self.live_names = {}
+        self.live_hits = {}
+        self.live_photo = None
 
         style = ttk.Style()
         style.theme_use("clam")
@@ -95,7 +105,8 @@ class Dashboard:
         self.button(actions, "Train Model", self.train_model, dark=True).pack(side="left", padx=(0, 8))
         self.button(actions, "Export CSV", self.export_csv, dark=True).pack(side="left", padx=(0, 8))
         self.button(actions, "Refresh", self.refresh, dark=True).pack(side="left", padx=(0, 8))
-        self.button(actions, "Backup Data", self.backup_data, dark=True).pack(side="left")
+        self.button(actions, "Backup Data", self.backup_data, dark=True).pack(side="left", padx=(0, 8))
+        self.button(actions, "Analytics", self.show_analytics, dark=True).pack(side="left")
 
         entryrow = tk.Frame(outer, bg=PANEL, padx=14, pady=14)
         entryrow.pack(fill="x", pady=(0, 18))
@@ -108,6 +119,22 @@ class Dashboard:
         self.name_entry.pack(side="left", padx=(0, 10), ipady=6)
         self.name_entry.insert(0, "Student Name")
         self.button(entryrow, "Capture & Auto Train", self.register_student).pack(side="left")
+
+        livebox = tk.Frame(outer, bg=PANEL, padx=12, pady=10)
+        livebox.pack(fill="x", pady=(0, 15))
+        self.live_image_label = tk.Label(livebox, text="Camera offline - click Start Camera",
+                                          width=65, height=12, bg="#101b2c", fg=FG)
+        self.live_image_label.pack(side="left")
+        details = tk.Frame(livebox, bg=PANEL, padx=20)
+        details.pack(side="left", fill="both", expand=True)
+        tk.Label(details, text="LIVE FACE RECOGNITION", bg=PANEL, fg=ACCENT,
+                 font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(10, 6))
+        self.live_status = tk.StringVar(value="OFFLINE")
+        tk.Label(details, textvariable=self.live_status, bg=PANEL, fg=FG,
+                 font=("Segoe UI", 12)).pack(anchor="w")
+        tk.Label(details, text="Registered matches are marked once per day.\n"
+                 "Unknown faces are never enrolled automatically.",
+                 bg=PANEL, fg=MUTED, justify="left").pack(anchor="w", pady=(14, 0))
 
         tables = tk.Frame(outer, bg=BG)
         tables.pack(fill="both", expand=True)
@@ -124,6 +151,9 @@ class Dashboard:
         student_header.pack(fill="x", pady=(0, 12))
         tk.Label(student_header, text="Students", bg=PANEL, fg=FG,
                  font=("Segoe UI", 13, "bold")).pack(side="left")
+        tk.Button(student_header, text="Edit Profile", command=self.edit_student,
+                  bg=CARD, fg=FG, font=("Segoe UI", 10, "bold"),
+                  relief="flat", cursor="hand2", padx=10, pady=6).pack(side="right", padx=(0, 8))
         tk.Button(student_header, text="Delete Student", command=self.delete_student,
                   bg="#a93646", fg="#ffffff", activebackground="#c34a59",
                   activeforeground="#ffffff", font=("Segoe UI", 10, "bold"),
@@ -234,6 +264,9 @@ class Dashboard:
             return connection.execute("SELECT COUNT(*) FROM attendance").fetchone()[0]
 
     def launch(self, args, label, auto_train=False):
+        if self.live_capture is not None:
+            messagebox.showwarning("Camera busy", "Stop live preview before registration.")
+            return
         if self.training:
             messagebox.showinfo("Training in progress", "Finish model training before using the camera.")
             return
@@ -249,19 +282,93 @@ class Dashboard:
             messagebox.showerror("Unable to start", str(exc))
 
     def start_camera(self):
-        if not (ROOT / "model.yml").exists():
-            messagebox.showwarning("Model missing", "Register a student and train the model first.")
+        if self.training or (self.process and self.process.poll() is None):
+            messagebox.showwarning("Busy", "Finish face registration or training first.")
             return
-        self.launch(["attendance"], "Attendance camera running")
+        if self.live_capture is not None:
+            return
+        try:
+            from main import detector
+            model_path = ROOT / "model.yml"
+            if not model_path.exists():
+                messagebox.showwarning("Model missing", "Register and train a face first.")
+                return
+            recognizer = cv2.face.LBPHFaceRecognizer_create()
+            recognizer.read(str(model_path))
+            cascade = detector()
+            capture = cv2.VideoCapture(0)
+            if not capture.isOpened():
+                capture.release()
+                raise RuntimeError("Could not open webcam.")
+            with sqlite3.connect(DB) as con:
+                names = dict(con.execute("SELECT id,name FROM students"))
+            self.live_model = recognizer
+            self.live_detector = cascade
+            self.live_names = names
+            self.live_hits = {}
+            self.live_capture = capture
+            self.live_status.set("LIVE - camera active")
+            self.root.after(30, self.camera_frame)
+        except Exception as exc:
+            self.stop_camera()
+            messagebox.showerror("Camera error", str(exc))
+
+    def camera_frame(self):
+        if self.live_capture is None:
+            return
+        try:
+            ok, frame = self.live_capture.read()
+            if not ok:
+                raise RuntimeError("Camera stopped sending frames.")
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            boxes = self.live_detector.detectMultiScale(
+                gray, scaleFactor=1.2, minNeighbors=5, minSize=(90, 90))
+            seen = set()
+            for x, y, w, h in boxes:
+                face = cv2.resize(gray[y:y+h, x:x+w], (200, 200))
+                sid, distance = self.live_model.predict(face)
+                recognized = sid in self.live_names and distance < 55
+                label = self.live_names[sid] if recognized else "Unknown"
+                color = (40, 205, 125) if recognized else (50, 80, 235)
+                cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
+                cv2.putText(frame, label[:26], (x, max(y-8, 25)),
+                            cv2.FONT_HERSHEY_SIMPLEX, .65, color, 2)
+                if recognized:
+                    seen.add(sid)
+                    self.live_hits[sid] = self.live_hits.get(sid, 0) + 1
+                    if self.live_hits[sid] == 8:
+                        now = datetime.now()
+                        with sqlite3.connect(DB) as con:
+                            con.execute("INSERT OR IGNORE INTO attendance(student_id,date,time) VALUES(?,?,?)",
+                                        (sid, now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")))
+                        self.refresh()
+            for sid in list(self.live_hits):
+                if sid not in seen:
+                    self.live_hits[sid] = 0
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            rgb = cv2.resize(rgb, (440, 260))
+            photo = ImageTk.PhotoImage(Image.fromarray(rgb))
+            self.live_photo = photo
+            self.live_image_label.configure(image=photo, text="", width=440, height=260)
+            self.live_status.set(f"LIVE - {len(boxes)} face(s) detected")
+        except Exception as exc:
+            self.stop_camera()
+            self.live_status.set("Camera error")
+            messagebox.showerror("Camera error", str(exc))
+            return
+        self.root.after(35, self.camera_frame)
 
     def stop_camera(self):
+        if self.live_capture is not None:
+            self.live_capture.release()
+            self.live_capture = None
+        self.live_photo = None
+        self.live_image_label.configure(image="", text="Camera offline - click Start Camera")
+        self.live_status.set("OFFLINE")
         if self.process and self.process.poll() is None:
-            if messagebox.askyesno("Stop session", "Stop the current camera session?"):
+            if messagebox.askyesno("Stop capture", "Stop the current registration session?"):
                 self.process.terminate()
-                self.status.set("Camera process stopped")
-        else:
-            self.status.set("Camera is not running")
-        self.root.after(800, self.refresh)
+        self.root.after(200, self.refresh)
 
     def register_student(self):
         sid = self.id_entry.get().strip()
@@ -285,6 +392,54 @@ class Dashboard:
         if not messagebox.askyesno("Consent", "Confirm this student has consented to local face-image capture."):
             return
         self.launch(["register", "--id", sid, "--name", name], f"Capturing face for {name}", auto_train=True)
+
+    def edit_student(self):
+        if self.training or self.live_capture is not None or (self.process and self.process.poll() is None):
+            messagebox.showwarning("Busy", "Stop the camera before editing a profile.")
+            return
+        selected = self.students.selection()
+        if not selected:
+            messagebox.showinfo("Select Student", "Select a student from the table first.")
+            return
+        sid, old_name, _ = self.students.item(selected[0], "values")
+        from tkinter import simpledialog
+        name = simpledialog.askstring("Edit student profile", f"Name for ID {sid}:",
+                                      initialvalue=old_name, parent=self.root)
+        if name is None:
+            return
+        name = " ".join(name.strip().split())
+        if not name or len(name) > 100:
+            messagebox.showwarning("Invalid name", "Enter a valid name under 101 characters.")
+            return
+        with sqlite3.connect(DB) as con:
+            rows = con.execute("SELECT id,name FROM students WHERE id<>?", (int(sid),)).fetchall()
+            if any(other.casefold() == name.casefold() for _, other in rows):
+                messagebox.showwarning("Duplicate name", "A student with that name already exists.")
+                return
+            con.execute("UPDATE students SET name=? WHERE id=?", (name, int(sid)))
+        self.refresh()
+
+    def show_analytics(self):
+        with sqlite3.connect(DB) as con:
+            total = con.execute("SELECT COUNT(*) FROM students").fetchone()[0]
+            rows = con.execute("SELECT date,COUNT(*) FROM attendance GROUP BY date ORDER BY date DESC LIMIT 30").fetchall()
+        window = tk.Toplevel(self.root)
+        window.title("Attendance Analytics")
+        window.geometry("550x490")
+        window.configure(bg=BG)
+        tk.Label(window, text="Attendance Analytics - Last 30 recorded days",
+                 bg=BG, fg=FG, font=("Segoe UI", 14, "bold")).pack(pady=17)
+        canvas = tk.Canvas(window, bg=PANEL, height=360, highlightthickness=0)
+        canvas.pack(fill="both", expand=True, padx=18, pady=12)
+        if not rows:
+            canvas.create_text(230, 150, text="No attendance records yet", fill=FG)
+            return
+        for i, (day, count) in enumerate(rows[:12]):
+            y = 20+i*27
+            canvas.create_text(85, y+10, text=day, fill=FG)
+            canvas.create_rectangle(135, y, 135+int(260*count/max(total,1)), y+18,
+                                    fill=ACCENT, outline="")
+            canvas.create_text(420, y+10, text=f"{count}/{total}", fill=FG)
 
     def delete_student(self):
         if self.training or (self.process and self.process.poll() is None):
@@ -401,6 +556,8 @@ class Dashboard:
             pass
 
     def close(self):
+        if self.live_capture is not None:
+            self.stop_camera()
         if self.training:
             messagebox.showinfo("Please finish training", "Close after model training is complete.")
             return
