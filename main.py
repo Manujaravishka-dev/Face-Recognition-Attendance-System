@@ -64,6 +64,11 @@ def register(student_id, name):
     if con.execute('SELECT 1 FROM students WHERE id=?', (student_id,)).fetchone():
         con.close()
         raise ValueError('Student ID already exists; choose a new ID')
+    normalized = ' '.join(name.split()).casefold()
+    for existing_id, existing_name in con.execute('SELECT id, name FROM students'):
+        if ' '.join(existing_name.split()).casefold() == normalized:
+            con.close()
+            raise ValueError(f'Student already registered as ID {existing_id}: {existing_name}')
     con.close()
     folder = FACES / str(student_id)
     folder.mkdir(exist_ok=True)
