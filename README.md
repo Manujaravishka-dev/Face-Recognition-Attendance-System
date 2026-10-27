@@ -61,3 +61,9 @@ In the desktop dashboard, enter a **new numeric student ID** and **student name*
 New registration rejects an existing student ID or an existing student name after trimming spaces and ignoring letter case. Select a duplicate in the Students table and use **Delete Selected Student** to remove that selected ID, its attendance history and local face samples after confirmation; the remaining face model is retrained. Back up local data first if you need to preserve it.
 
 **Limit:** Name matching does not prove two people have the same identity. A person registered under a different name and ID is not automatically identified as a duplicate. Distinct people sharing a name will also be blocked until the registration policy is improved (e.g., an additional unique school ID).
+
+### Face-based duplicate detection before registration
+
+When a trained `model.yml` exists, **Capture & Auto Train** first shows a webcam verification stage (`Face check 0/24`). It compares the presented face with registered students for repeated, strong LBPH matches. If one is found, registration is blocked and the dashboard displays **Already Registered**; the camera briefly shows a possible matching name and ID. Otherwise the usual photo collection begins and the model trains automatically after successful enrollment.
+
+This is a *possible-match warning*, **not reliable proof of identity**. Similar-looking people may be falsely blocked and the same person might go undetected. Staff must verify matches manually. If an existing student was accidentally registered twice before this update, remove the mistaken record and retrain before using the check. A missing trained model means there is no face-based duplicate check for the first registration.
