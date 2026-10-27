@@ -17,3 +17,5 @@ models/
 faces_full/
 
 face_reenroll_*/
+
+reenroll_last.log
