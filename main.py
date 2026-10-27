@@ -1,6 +1,7 @@
 import argparse
 import csv
 import sqlite3
+from urllib.request import urlretrieve
 from datetime import datetime
 from pathlib import Path
 
@@ -25,11 +26,25 @@ def connect():
 
 
 def detector():
-    cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+    # OpenCV 5 distributions may not bundle the Haar cascade XML.
+    cascade_file = ROOT / 'haarcascade_frontalface_default.xml'
+    packaged_file = Path(cv2.data.haarcascades) / cascade_file.name
+    if not cascade_file.exists() and packaged_file.exists():
+        cascade_file = packaged_file
+    if not cascade_file.exists():
+        url = ('https://raw.githubusercontent.com/opencv/opencv/'
+               '4.10.0/data/haarcascades/haarcascade_frontalface_default.xml')
+        print('Face detector XML not found. Downloading official OpenCV cascade...')
+        try:
+            urlretrieve(url, cascade_file)
+        except Exception as exc:
+            raise RuntimeError(
+                'Cannot download face detector. Check internet connection and retry.'
+            ) from exc
+    cascade = cv2.CascadeClassifier(str(cascade_file))
     if cascade.empty():
-        raise RuntimeError('Could not load face detector')
+        raise RuntimeError('Could not load face detector XML; delete the XML and retry.')
     return cascade
-
 
 def camera():
     cam = cv2.VideoCapture(0)
