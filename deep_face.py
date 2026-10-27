@@ -47,7 +47,9 @@ class DeepFaceVerifier:
         self.gallery.clear()
         for sid in students:
             vectors = []
-            for path in sorted((faces_root / str(sid)).glob("*.png")):
+            full = ROOT / "faces_full" / str(sid)
+            directory = full if full.is_dir() else faces_root / str(sid)
+            for path in sorted(directory.glob("*.jpg")) + sorted(directory.glob("*.png")):
                 img = cv2.imread(str(path))
                 if img is None:
                     continue
@@ -57,6 +59,22 @@ class DeepFaceVerifier:
             if vectors:
                 self.gallery[sid] = vectors
         return self.gallery
+
+    def predict(self, frame):
+        """Best gallery match, with ambiguity rejection. Scores require calibration."""
+        sample = self.embed(frame)
+        if sample is None:
+            return None
+        scores = sorted(
+            ((max(float(np.dot(sample, v)) for v in vectors), sid)
+             for sid, vectors in self.gallery.items() if vectors),
+            reverse=True
+        )
+        if not scores or scores[0][0] < SIMILARITY_FLAG:
+            return None
+        if len(scores) > 1 and scores[0][0] - scores[1][0] < 0.08:
+            return None
+        return scores[0][1], scores[0][0]
 
     def potential_match(self, frames, students):
         """Return possible match (ID, name, similarity) or None, never auto-enroll."""
