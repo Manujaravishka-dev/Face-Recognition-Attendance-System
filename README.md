@@ -93,3 +93,11 @@ The camera and interface need testing on your own Windows machine. No web dashbo
 Select a student in the dashboard's **Students** table and click **Edit Profile**. The profile window shows an existing local face sample (if one was captured), the student's ID, editable full name, class/group, optional phone and up to 300 recent attendance entries. Click **Save Profile** to update SQLite. Existing students are supported without migration commands; profile details are stored in a separate `student_profiles` table created automatically on first use. For legacy student records, the original registration date was not recorded and is shown as unavailable until a profile is saved (the saved profile's creation date is recorded).
 
 Deleting a student from the dashboard also deletes that student's supplementary profile. No phone or face image is pushed to GitHub. Treat these details and ZIP backups as private.
+
+## Registration security: double duplicate screening
+
+New enrollment now compares webcam samples against *actual saved face samples for every enrolled student*, independent of whether the current `model.yml` is up to date. A second check runs after capturing 35 images and **before** inserting any new student record. When a potential match is detected, registration is blocked and the captured provisional images are discarded. If prior enrolled photos are missing or insufficient, enrollment fails closed instead of silently skipping duplicate checks.
+
+**This is a conservative heuristic, not identity proof.** False negatives and false positives are still possible; especially for similar-looking people, poor lighting, face angles, or images recorded under different conditions. An operator must cross-check school ID or another reliable unique enrollment credential and perform a manual review of possible duplicates. Do not use this to enforce disciplinary consequences or automatically delete existing students. Existing duplicates are **not** silently merged or deleted; they require deliberate administrator review.
+
+To test: back up local attendance data, close the camera, pull the latest changes, launch the dashboard and attempt a registration with consent. An **Already Registered** warning indicates a *possible* match, not a conclusive identification.
