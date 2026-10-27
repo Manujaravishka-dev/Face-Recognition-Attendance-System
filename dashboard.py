@@ -315,11 +315,20 @@ class Dashboard:
                 if exit_code == 0 and registered:
                     self.status.set("Face captured successfully. Auto training model...")
                     self.train_model()
+                elif exit_code == 3:
+                    self.status.set("Already Registered - possible face match. Enrollment blocked.")
+                    messagebox.showwarning(
+                        "Already Registered",
+                        "This face appears to match an existing registered student.\n\n"
+                        "No new student was added. Please verify the match with the "
+                        "student list before trying again."
+                    )
                 else:
                     self.status.set("Registration incomplete. Model was not trained.")
                     messagebox.showwarning(
                         "Registration incomplete",
-                        "Face capture did not complete. Capture at least 10 samples and retry."
+                        "Enrollment was cancelled or failed. Check the camera window "
+                        "and terminal for details. No new student was added."
                     )
         else:
             self.refresh_silent()
