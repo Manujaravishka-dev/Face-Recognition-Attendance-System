@@ -30,12 +30,13 @@ class DeepFaceVerifier:
     def embed(self, frame):
         if frame.ndim == 2:
             frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-        height, width = frame.shape[:2]
-        self.detector.setInputSize((width, height))
-        _, faces = self.detector.detect(frame)
+        # The 2023mar YuNet ONNX file expects fixed 320 x 320 input.
+        view = cv2.resize(frame, (320, 320))
+        self.detector.setInputSize((320, 320))
+        _, faces = self.detector.detect(view)
         if faces is None or len(faces) != 1:
             return None
-        aligned = self.recognizer.alignCrop(frame, faces[0])
+        aligned = self.recognizer.alignCrop(view, faces[0])
         vector = self.recognizer.feature(aligned).flatten().astype(np.float32)
         norm = np.linalg.norm(vector)
         if norm < 1e-8:
