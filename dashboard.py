@@ -508,7 +508,7 @@ class Dashboard:
         if not selected:
             messagebox.showinfo("Select student", "Select the duplicate row to remove.")
             return
-        sid, name, _ = self.students.item(selected[0], "values")
+        sid, name, *_ = self.students.item(selected[0], "values")
         if not messagebox.askyesno(
             "Delete student",
             f"Permanently remove {name} (ID {sid})?\n\n"
