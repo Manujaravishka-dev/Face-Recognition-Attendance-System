@@ -56,6 +56,8 @@ class Dashboard:
         self.training = False
         self.registration_id = None
         self.live_capture = None
+        self.deep_verifier = None
+        self.live_mode = 'LBPH'
         self.live_model = None
         self.live_detector = None
         self.live_names = {}
@@ -245,11 +247,12 @@ class Dashboard:
                     source.backup(destination)
                 with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
                     archive.write(snapshot, "attendance.db")
-                    folder = ROOT / "faces"
-                    if folder.is_dir():
-                        for path in folder.rglob("*"):
-                            if path.is_file():
-                                archive.write(path, path.relative_to(ROOT))
+                    for dirname in ("faces", "faces_full"):
+                        folder = ROOT / dirname
+                        if folder.is_dir():
+                            for path in folder.rglob("*"):
+                                if path.is_file():
+                                    archive.write(path, path.relative_to(ROOT))
                     model = ROOT / "model.yml"
                     if model.is_file():
                         archive.write(model, "model.yml")
@@ -302,6 +305,19 @@ class Dashboard:
                 raise RuntimeError("Could not open webcam.")
             with sqlite3.connect(DB) as con:
                 names = dict(con.execute("SELECT id,name FROM students"))
+            self.deep_verifier = None
+            self.live_mode = "LBPH"
+            try:
+                from deep_face import DeepFaceVerifier, installed
+                if installed() and names:
+                    verifier = DeepFaceVerifier()
+                    gallery = verifier.build_gallery(ROOT / "faces", names)
+                    # Never recognize with an incomplete gallery.
+                    if set(gallery) == set(names):
+                        self.deep_verifier = verifier
+                        self.live_mode = "SFace"
+            except (RuntimeError, cv2.error, OSError):
+                pass
             self.live_model = recognizer
             self.live_detector = cascade
             self.live_names = names
@@ -326,8 +342,13 @@ class Dashboard:
             seen = set()
             for x, y, w, h in boxes:
                 face = cv2.resize(gray[y:y+h, x:x+w], (200, 200))
-                sid, distance = self.live_model.predict(face)
-                recognized = sid in self.live_names and distance < 55
+                if self.deep_verifier is not None:
+                    result = self.deep_verifier.predict(frame[y:y+h, x:x+w])
+                    sid = result[0] if result else -1
+                    recognized = sid in self.live_names
+                else:
+                    sid, distance = self.live_model.predict(face)
+                    recognized = sid in self.live_names and distance < 55
                 label = self.live_names[sid] if recognized else "Unknown"
                 color = (40, 205, 125) if recognized else (50, 80, 235)
                 cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
@@ -350,7 +371,7 @@ class Dashboard:
             photo = ImageTk.PhotoImage(Image.fromarray(rgb))
             self.live_photo = photo
             self.live_image_label.configure(image=photo, text="", width=440, height=260)
-            self.live_status.set(f"LIVE - {len(boxes)} face(s) detected")
+            self.live_status.set(f"LIVE ({self.live_mode}) - {len(boxes)} face(s) detected")
         except Exception as exc:
             self.stop_camera()
             self.live_status.set("Camera error")
@@ -453,6 +474,7 @@ class Dashboard:
                     registered_on TEXT NOT NULL DEFAULT (date('now')))""")
                 connection.execute("DELETE FROM student_profiles WHERE student_id=?", (int(sid),))
             shutil.rmtree(ROOT / "faces" / str(int(sid)), ignore_errors=True)
+            shutil.rmtree(ROOT / "faces_full" / str(int(sid)), ignore_errors=True)
             self.refresh()
             with sqlite3.connect(DB) as connection:
                 count = connection.execute("SELECT COUNT(*) FROM students").fetchone()[0]
