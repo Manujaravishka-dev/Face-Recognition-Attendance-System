@@ -56,6 +56,8 @@ class Dashboard:
         self.training = False
         self.registration_id = None
         self.reenrolling = False
+        self.reenroll_log_handle = None
+        self.reenroll_log_path = ROOT / "reenroll_last.log"
         self.live_capture = None
         self.deep_verifier = None
         self.live_mode = 'LBPH'
@@ -459,11 +461,16 @@ class Dashboard:
               "Confirm student consent before continuing."):
             return
         try:
+            self.reenroll_log_handle = open(self.reenroll_log_path, "w", encoding="utf-8")
             self.process = subprocess.Popen(
-                [sys.executable, str(ROOT / "re_enroll.py"), "--id", str(sid)], cwd=ROOT)
+                [sys.executable, "-u", str(ROOT / "re_enroll.py"), "--id", str(sid)],
+                cwd=ROOT, stdout=self.reenroll_log_handle, stderr=subprocess.STDOUT)
             self.reenrolling = True
             self.status.set(f"Re-enrolling {name}: Front, Left, Right. Press Q to cancel.")
         except OSError as error:
+            if self.reenroll_log_handle:
+                self.reenroll_log_handle.close()
+                self.reenroll_log_handle = None
             messagebox.showerror("Capture failed", str(error))
 
     def edit_student(self):
@@ -578,6 +585,9 @@ class Dashboard:
             exit_code = self.process.returncode
             was_reenrollment = self.reenrolling
             self.reenrolling = False
+            if was_reenrollment and self.reenroll_log_handle:
+                self.reenroll_log_handle.close()
+                self.reenroll_log_handle = None
             was_registration = self.auto_train
             student_id = self.registration_id
             self.process = None
@@ -590,7 +600,13 @@ class Dashboard:
                     messagebox.showinfo("Re-Enrolled", "Face data updated. Student ID and attendance preserved.")
                 else:
                     self.status.set("Re-enrollment cancelled or failed; verify prior face data.")
-                    messagebox.showwarning("Not Completed", "Re-enrollment did not finish. Review terminal output.")
+                    try:
+                        details = self.reenroll_log_path.read_text(encoding="utf-8")[-1800:].strip()
+                    except OSError:
+                        details = ""
+                    messagebox.showwarning("Not Completed",
+                        "Re-enrollment did not finish. Original student record is unchanged.\\n\\n"
+                        + (details or "No error details captured. Check reenroll_last.log."))
             if was_registration:
                 with sqlite3.connect(DB) as connection:
                     registered = connection.execute(
