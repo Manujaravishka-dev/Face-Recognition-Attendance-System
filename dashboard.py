@@ -3,6 +3,7 @@
 Uses Python's built-in Tkinter; webcam sessions run in separate processes.
 """
 import csv
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -128,6 +129,8 @@ class Dashboard:
             self.students.heading(col, text=label)
             self.students.column(col, width=width, minwidth=55, stretch=True)
         self.students.pack(fill="both", expand=True)
+        self.button(left, "Delete Selected Student", self.delete_student, dark=True).pack(
+            anchor="w", pady=(10, 0))
 
         self.history = ttk.Treeview(right, columns=("date", "time", "id", "name"),
                                     show="headings")
@@ -214,9 +217,51 @@ class Dashboard:
         if len(name) > 100:
             messagebox.showwarning("Invalid data", "Name must be 100 characters or fewer.")
             return
+        students, _ = read_data()
+        for existing_id, existing_name in students:
+            if int(sid) == existing_id:
+                messagebox.showwarning("Duplicate ID", f"Student ID {sid} is already registered.")
+                return
+            if " ".join(existing_name.split()).casefold() == " ".join(name.split()).casefold():
+                messagebox.showwarning("Duplicate student",
+                    f"{existing_name} is already registered with ID {existing_id}.\\n"
+                    "Use the existing record instead of registering twice.")
+                return
         if not messagebox.askyesno("Consent", "Confirm this student has consented to local face-image capture."):
             return
         self.launch(["register", "--id", sid, "--name", name], f"Capturing face for {name}", auto_train=True)
+
+    def delete_student(self):
+        if self.training or (self.process and self.process.poll() is None):
+            messagebox.showwarning("Busy", "Close the camera and finish training first.")
+            return
+        selected = self.students.selection()
+        if not selected:
+            messagebox.showinfo("Select student", "Select the duplicate row to remove.")
+            return
+        sid, name, _ = self.students.item(selected[0], "values")
+        if not messagebox.askyesno(
+            "Delete student",
+            f"Permanently remove {name} (ID {sid})?\\n\\n"
+            "Their face samples and attendance records will also be deleted. "
+            "This cannot be undone.",
+        ):
+            return
+        try:
+            with sqlite3.connect(DB) as connection:
+                connection.execute("DELETE FROM attendance WHERE student_id=?", (int(sid),))
+                connection.execute("DELETE FROM students WHERE id=?", (int(sid),))
+            shutil.rmtree(ROOT / "faces" / str(int(sid)), ignore_errors=True)
+            self.refresh()
+            with sqlite3.connect(DB) as connection:
+                count = connection.execute("SELECT COUNT(*) FROM students").fetchone()[0]
+            if count:
+                self.train_model()
+            else:
+                (ROOT / "model.yml").unlink(missing_ok=True)
+                self.status.set("All students removed. Model cleared.")
+        except (sqlite3.Error, OSError) as exc:
+            messagebox.showerror("Delete failed", str(exc))
 
     def train_model(self):
         if self.training:
