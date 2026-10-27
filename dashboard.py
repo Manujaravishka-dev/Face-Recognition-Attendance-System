@@ -343,7 +343,7 @@ class Dashboard:
             for x, y, w, h in boxes:
                 face = cv2.resize(gray[y:y+h, x:x+w], (200, 200))
                 if self.deep_verifier is not None:
-                    result = self.deep_verifier.predict(frame[y:y+h, x:x+w])
+                    result = self.deep_verifier.predict(frame) if len(boxes) == 1 else None
                     sid = result[0] if result else -1
                     recognized = sid in self.live_names
                 else:
