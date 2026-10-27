@@ -87,3 +87,9 @@ The updated Python Tkinter dashboard includes:
 Stop the live preview before running face enrollment; the same webcam cannot safely be opened twice. Embedded attendance uses the existing LBPH model, so scores are estimates, not verified identities. A human should review false matches and correct attendance where necessary.
 
 The camera and interface need testing on your own Windows machine. No web dashboard, admin password protection, liveness detection, or packaged EXE is included in this stage; these require further development. Do not expose the local database, photos, or unencrypted backup ZIP publicly.
+
+## Student Profile Management
+
+Select a student in the dashboard's **Students** table and click **Edit Profile**. The profile window shows an existing local face sample (if one was captured), the student's ID, editable full name, class/group, optional phone and up to 300 recent attendance entries. Click **Save Profile** to update SQLite. Existing students are supported without migration commands; profile details are stored in a separate `student_profiles` table created automatically on first use. For legacy student records, the original registration date was not recorded and is shown as unavailable until a profile is saved (the saved profile's creation date is recorded).
+
+Deleting a student from the dashboard also deletes that student's supplementary profile. No phone or face image is pushed to GitHub. Treat these details and ZIP backups as private.
