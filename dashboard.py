@@ -395,29 +395,15 @@ class Dashboard:
 
     def edit_student(self):
         if self.training or self.live_capture is not None or (self.process and self.process.poll() is None):
-            messagebox.showwarning("Busy", "Stop the camera before editing a profile.")
+            messagebox.showwarning("Busy", "Stop the camera before opening a profile.")
             return
         selected = self.students.selection()
         if not selected:
             messagebox.showinfo("Select Student", "Select a student from the table first.")
             return
-        sid, old_name, _ = self.students.item(selected[0], "values")
-        from tkinter import simpledialog
-        name = simpledialog.askstring("Edit student profile", f"Name for ID {sid}:",
-                                      initialvalue=old_name, parent=self.root)
-        if name is None:
-            return
-        name = " ".join(name.strip().split())
-        if not name or len(name) > 100:
-            messagebox.showwarning("Invalid name", "Enter a valid name under 101 characters.")
-            return
-        with sqlite3.connect(DB) as con:
-            rows = con.execute("SELECT id,name FROM students WHERE id<>?", (int(sid),)).fetchall()
-            if any(other.casefold() == name.casefold() for _, other in rows):
-                messagebox.showwarning("Duplicate name", "A student with that name already exists.")
-                return
-            con.execute("UPDATE students SET name=? WHERE id=?", (name, int(sid)))
-        self.refresh()
+        sid = int(self.students.item(selected[0], "values")[0])
+        from student_profile import open_profile
+        open_profile(self.root, sid, self.refresh)
 
     def show_analytics(self):
         with sqlite3.connect(DB) as con:
@@ -461,6 +447,11 @@ class Dashboard:
             with sqlite3.connect(DB) as connection:
                 connection.execute("DELETE FROM attendance WHERE student_id=?", (int(sid),))
                 connection.execute("DELETE FROM students WHERE id=?", (int(sid),))
+                connection.execute("""CREATE TABLE IF NOT EXISTS student_profiles (
+                    student_id INTEGER PRIMARY KEY, class_name TEXT NOT NULL DEFAULT '',
+                    phone TEXT NOT NULL DEFAULT '',
+                    registered_on TEXT NOT NULL DEFAULT (date('now')))""")
+                connection.execute("DELETE FROM student_profiles WHERE student_id=?", (int(sid),))
             shutil.rmtree(ROOT / "faces" / str(int(sid)), ignore_errors=True)
             self.refresh()
             with sqlite3.connect(DB) as connection:
