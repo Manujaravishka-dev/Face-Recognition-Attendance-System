@@ -3,6 +3,8 @@
 Uses Python's built-in Tkinter; webcam sessions run in separate processes.
 """
 import csv
+import tempfile
+import zipfile
 import shutil
 import sqlite3
 import subprocess
@@ -92,7 +94,8 @@ class Dashboard:
         self.button(actions, "Stop Camera", self.stop_camera, dark=True).pack(side="left", padx=(0, 8))
         self.button(actions, "Train Model", self.train_model, dark=True).pack(side="left", padx=(0, 8))
         self.button(actions, "Export CSV", self.export_csv, dark=True).pack(side="left", padx=(0, 8))
-        self.button(actions, "Refresh", self.refresh, dark=True).pack(side="left")
+        self.button(actions, "Refresh", self.refresh, dark=True).pack(side="left", padx=(0, 8))
+        self.button(actions, "Backup Data", self.backup_data, dark=True).pack(side="left")
 
         entryrow = tk.Frame(outer, bg=PANEL, padx=14, pady=14)
         entryrow.pack(fill="x", pady=(0, 18))
@@ -125,6 +128,14 @@ class Dashboard:
                   bg="#a93646", fg="#ffffff", activebackground="#c34a59",
                   activeforeground="#ffffff", font=("Segoe UI", 10, "bold"),
                   relief="flat", cursor="hand2", padx=10, pady=6).pack(side="right")
+        search_bar = tk.Frame(left, bg=PANEL)
+        search_bar.pack(fill="x", pady=(0, 10))
+        tk.Label(search_bar, text="Search:", bg=PANEL, fg=MUTED).pack(side="left")
+        self.search_var = tk.StringVar()
+        self.search_var.trace_add("write", lambda *_: self.filter_students())
+        tk.Entry(search_bar, textvariable=self.search_var,
+                 font=("Segoe UI", 10)).pack(side="left", fill="x", expand=True, padx=(8, 0))
+        self.cached_students = []
         tk.Label(right, text="Attendance History", bg=PANEL, fg=FG,
                  font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(0, 12))
 
@@ -172,11 +183,51 @@ class Dashboard:
             self.metric_labels[key].configure(text=str(value))
         for tree in (self.students, self.history):
             tree.delete(*tree.get_children())
-        for sid, name in students:
-            self.students.insert("", "end", values=(sid, name, "Present" if sid in marked else "Pending"))
+        self.cached_students = [(sid, name, "Present" if sid in marked else "Pending")
+                                for sid, name in students]
+        self.filter_students()
         for row in records:
             self.history.insert("", "end", values=row)
         self.status.set("Data refreshed. Attendance is counted once per student per day.")
+
+    def filter_students(self):
+        term = self.search_var.get().strip().casefold()
+        self.students.delete(*self.students.get_children())
+        for row in self.cached_students:
+            if term in str(row[0]).casefold() or term in row[1].casefold():
+                self.students.insert("", "end", values=row)
+
+    def backup_data(self):
+        if self.training or (self.process and self.process.poll() is None):
+            messagebox.showwarning("Busy", "Stop camera sessions and finish training before backup.")
+            return
+        target = filedialog.asksaveasfilename(
+            title="Save private student backup",
+            defaultextension=".zip",
+            initialfile=f"face_attendance_backup_{date.today().isoformat()}.zip",
+            filetypes=[("ZIP archive", "*.zip")])
+        if not target:
+            return
+        try:
+            with tempfile.TemporaryDirectory() as temporary:
+                snapshot = Path(temporary) / "attendance.db"
+                with sqlite3.connect(DB) as source, sqlite3.connect(snapshot) as destination:
+                    source.backup(destination)
+                with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                    archive.write(snapshot, "attendance.db")
+                    folder = ROOT / "faces"
+                    if folder.is_dir():
+                        for path in folder.rglob("*"):
+                            if path.is_file():
+                                archive.write(path, path.relative_to(ROOT))
+                    model = ROOT / "model.yml"
+                    if model.is_file():
+                        archive.write(model, "model.yml")
+            messagebox.showinfo("Backup created",
+                                "Private backup saved. Keep it secure; it contains biometric face data.")
+            self.status.set("Backup created successfully.")
+        except (OSError, sqlite3.Error, zipfile.BadZipFile) as exc:
+            messagebox.showerror("Backup failed", str(exc))
 
     def count_records(self):
         with sqlite3.connect(DB) as connection:
