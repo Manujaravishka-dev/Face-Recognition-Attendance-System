@@ -101,3 +101,20 @@ New enrollment now compares webcam samples against *actual saved face samples fo
 **This is a conservative heuristic, not identity proof.** False negatives and false positives are still possible; especially for similar-looking people, poor lighting, face angles, or images recorded under different conditions. An operator must cross-check school ID or another reliable unique enrollment credential and perform a manual review of possible duplicates. Do not use this to enforce disciplinary consequences or automatically delete existing students. Existing duplicates are **not** silently merged or deleted; they require deliberate administrator review.
 
 To test: back up local attendance data, close the camera, pull the latest changes, launch the dashboard and attempt a registration with consent. An **Already Registered** warning indicates a *possible* match, not a conclusive identification.
+
+## Phase 3: Optional Deep Learning Face Duplicate Check
+
+Official OpenCV Zoo models: YuNet detector and SFace embedding recognizer.
+
+```powershell
+git pull origin main
+py -m pip install -r requirements.txt
+py setup_deep_models.py
+py dashboard.py
+```
+
+The setup script downloads the models once into the ignored local `models/` directory. Do not commit model binaries or student biometrics. To enable the optional deep-learning check, **both models must download successfully**. If they are absent, the existing LBPH duplicate screening remains enabled. When installed, SFace checks newly captured face samples against previously captured samples **before** the student record is saved. A possible duplicate halts enrollment for human review. If the model cannot inspect enough faces, registration pauses for review rather than claiming a safe match.
+
+**Important limitations:** Existing images are small grayscale LBPH crops, not full-color five-landmark images; SFace may be unable to extract embeddings for them. That deliberately blocks enrollment when the deep gallery is incomplete. For reliable future results, we should add consented full-frame multi-angle enrollment photos and calibrate face-matching thresholds against test data. This phase does **not** replace attendance recognition with SFace and does not guarantee that differently named registrations will always be detected. Always confirm a school ID or other authoritative identifier.
+
+Face matching accuracy and ONNX model compatibility must be tested on the target Windows/OpenCV installation; this change has not been camera-tested remotely.
