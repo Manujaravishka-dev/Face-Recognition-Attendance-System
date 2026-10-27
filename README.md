@@ -67,3 +67,23 @@ New registration rejects an existing student ID or an existing student name afte
 When a trained `model.yml` exists, **Capture & Auto Train** first shows a webcam verification stage (`Face check 0/24`). It compares the presented face with registered students for repeated, strong LBPH matches. If one is found, registration is blocked and the dashboard displays **Already Registered**; the camera briefly shows a possible matching name and ID. Otherwise the usual photo collection begins and the model trains automatically after successful enrollment.
 
 This is a *possible-match warning*, **not reliable proof of identity**. Similar-looking people may be falsely blocked and the same person might go undetected. Staff must verify matches manually. If an existing student was accidentally registered twice before this update, remove the mistaken record and retrain before using the check. A missing trained model means there is no face-based duplicate check for the first registration.
+
+## Enhanced desktop dashboard (2026)
+
+Run:
+```powershell
+py -m pip install -r requirements.txt
+py dashboard.py
+```
+
+The updated Python Tkinter dashboard includes:
+- **Embedded live camera** after clicking Start Camera; Stop Camera releases the webcam
+- **Automatic attendance** for repeatedly detected, previously registered faces
+- **Unknown-face label** (not automatic registration)
+- **Edit Profile** for correcting a selected student's name
+- **Analytics** chart for up to 12 recent recorded days
+- Student search, CSV export, consent-based face registration, training, duplicate checks, data backup and deletion
+
+Stop the live preview before running face enrollment; the same webcam cannot safely be opened twice. Embedded attendance uses the existing LBPH model, so scores are estimates, not verified identities. A human should review false matches and correct attendance where necessary.
+
+The camera and interface need testing on your own Windows machine. No web dashboard, admin password protection, liveness detection, or packaged EXE is included in this stage; these require further development. Do not expose the local database, photos, or unencrypted backup ZIP publicly.
