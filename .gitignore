@@ -11,3 +11,6 @@ attendance_*.csv
 .DS_Store
 .vscode/
 haarcascade_frontalface_default.xml
+
+models/
+*.download
